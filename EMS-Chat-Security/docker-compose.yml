@@ -1,0 +1,128 @@
+version: '3'
+
+services:
+  reverse-proxy:
+    image: traefik:v3.2
+    container_name: traefik
+    command:
+      - --api.insecure=true
+      - --providers.docker
+      - --accesslog=true
+      - --accesslog.filepath=/var/log/traefik/access.log
+      - --log.level=DEBUG
+      - --entryPoints.web.address=:80
+    ports:
+      - "80:80"
+      - "8085:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock #.ro
+      - traefik_logs:/var/log/traefik
+    networks:
+      demo_net:
+
+  userdb:
+    image: mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: 'userdb'
+      MYSQL_ROOT_PASSWORD: '1234'
+    ports:
+      - "3308:3306"
+    volumes:
+      - userdb-data:/var/lib/mysql
+    networks:
+      - demo_net
+
+  devicedb:
+    image: mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: 'devicedb'
+      MYSQL_ROOT_PASSWORD: '1234'
+    ports:
+      - "3309:3306"
+    volumes:
+      - devicedb-data:/var/lib/mysql
+    networks:
+      - demo_net
+
+  user-demo:
+    build:
+      context: ./Project1BackendUser
+    deploy:
+      replicas: 2
+    environment:
+      - DB_IP=userdb
+      - DB_PORT=3306
+      - DB_DBNAME=userdb
+      - DB_USER=root
+      - DB_PASSWORD=1234
+    depends_on:
+      - userdb
+    networks:
+      - demo_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.user-demo.rule=Host(`user-demo.localhost`)"
+      - "traefik.http.services.user-demo.loadbalancer.server.port=8081"
+
+  device-demo:
+    build:
+      context: ./Project1BackendDevice
+    deploy:
+      replicas: 2
+    environment:
+      - DB_IP=devicedb
+      - DB_PORT=3306
+      - DB_DBNAME=devicedb
+      - DB_USER=root
+      - DB_PASSWORD=1234
+    depends_on:
+      - devicedb
+    networks:
+      - demo_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.device-demo.rule=Host(`device-demo.localhost`)"
+      - "traefik.http.services.device-demo.loadbalancer.server.port=8082"
+
+  chat-demo:
+    build:
+      context: ./Project3BackendChat
+    environment:
+      - DB_IP=userdb
+      - DB_PORT=3306
+      - DB_DBNAME=userdb
+      - DB_USER=root
+      - DB_PASSWORD=1234
+    depends_on:
+      - userdb
+    networks:
+      - demo_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chat-demo.rule=Host(`chat-demo.localhost`)"
+      - "traefik.http.services.chat-demo.loadbalancer.server.port=8083"
+
+  react:
+    build:
+      context: ./Project1Frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - user-demo
+      - device-demo
+      - chat-demo
+    environment:
+      - BACKEND=user-demo
+    networks:
+      - demo_net
+
+volumes:
+  userdb-data:
+  devicedb-data:
+  traefik_logs:
+
+networks:
+  demo_net:
+    external: true
